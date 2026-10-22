@@ -182,6 +182,7 @@ redinstaller
 | `--replace-launch-options` | Replace existing launch options instead of merging |
 | `--no-launch-options` | Don't set launch options this time |
 | `--no-config` | Ignore your settings for this run |
+| `--uninstall` | Remove Redinstaller (see [Uninstall](#uninstall)) |
 | `--version` | Print the version |
 | `-h`, `--help` | Show help |
 
@@ -247,6 +248,18 @@ change made while it's running would be lost. If Steam is running, Redinstaller
 asks whether to close it (`steam -shutdown`, which also closes any game
 running through Steam) or skip this step. It never closes Steam without
 asking. To undo a change, restore the `.bak` file while Steam is closed.
+
+## Uninstall
+
+```bash
+redinstaller --uninstall
+```
+
+It shows what it will remove and asks first. A copy installed by the quick
+installer or by hand is deleted; a copy from a package (AUR, .deb, .rpm) is
+removed with your package manager (e.g. `sudo pacman -R redinstaller`). It
+then asks whether to delete your settings too. Protontricks, fzf, perl and
+any Steam config backups (`*.redinstaller-*.bak`) are left in place.
 
 ## Troubleshooting
 
