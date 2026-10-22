@@ -30,7 +30,8 @@
 #   --no-config    ignore the settings file for this run
 #   --version      print the version                -h, --help  this help
 #
-# Settings live in ~/.config/redinstaller/config (or $REDINSTALLER_CONFIG).
+# Settings live in ~/.config/redinstaller/config (or $REDINSTALLER_CONFIG); the
+# first run asks a few questions to create it.
 # Options given on the command line override them for that run.
 #
 # Launch options are written to localconfig.vdf / shortcuts.vdf (needs perl),
@@ -46,7 +47,7 @@
 # version. It comes with ABSOLUTELY NO WARRANTY; see the LICENSE file.
 
 set -uo pipefail
-VERSION=1.1.0
+VERSION=1.2.0
 shopt -s extglob
 
 FLATPAK_ID=com.github.Matoking.protontricks
@@ -228,11 +229,84 @@ settings_ui() {
   [[ -e $CONFIG_FILE ]] && ok "Settings saved in $CONFIG_FILE" || info "No changes saved."
 }
 
+# first_run: the first time Redinstaller runs (no config file yet), ask a few
+# questions and save the answers as the config. Everything else keeps its default.
+first_run() {
+  local a nat=no flat=no
+  q()      { printf '\n%s%s%s\n' "$BLU$B" "$1" "$R"; shift; printf '   %s\n' "$@"; }
+  choose() {  # choose MAX DEFAULT → prints the picked number
+    local n
+    while :; do
+      read -r -p "   Choice [$2] › " n || return 1
+      n=${n:-$2}
+      [[ $n =~ ^[0-9]+$ ]] && ((n >= 1 && n <= $1)) && { echo "$n"; return 0; }
+      warn "   Pick 1-$1." >&2
+    done
+  }
+  banner
+  printf '%s👋 Welcome! Looks like this is your first time running Redinstaller.%s\n' "$B" "$R"
+  printf '%sA few quick questions to set your defaults (Enter keeps the suggested answer).\n' "$D"
+  printf 'Change them any time with: redinstaller --config%s\n' "$R"
+
+  q "1/4  Silent installs" \
+    "Pass quiet flags to known installers (VC++, DirectX, .NET, OpenAL, .msi)" \
+    "so you don't have to click through each one. Unknown installers still open normally."
+  read -r -p "   Use silent installs? [Y/n] › " a || return 1
+  [[ ${a,,} == n* ]] && CFG[silent]=false || CFG[silent]=true
+
+  command -v protontricks-launch >/dev/null && nat="${GRN}installed${R}"
+  command -v flatpak >/dev/null && flatpak info "$FLATPAK_ID" >/dev/null 2>&1 && flat="${GRN}installed${R}"
+  [[ $nat == no ]] && nat="${D}not installed${R}"
+  [[ $flat == no ]] && flat="${D}not installed${R}"
+  q "2/4  Which Protontricks?" \
+    "1) auto     use the native one if it's there, otherwise Flatpak (recommended)" \
+    "2) native   the protontricks package from your distro or pipx   [$nat]" \
+    "3) flatpak  com.github.Matoking.protontricks from Flathub        [$flat]"
+  a=$(choose 3 1) || return 1
+  CFG[protontricks]=$(case $a in 2) echo native ;; 3) echo flatpak ;; *) echo auto ;; esac)
+
+  q "3/4  Steam launch options" \
+    "Redinstaller can also set the game's launch options in Steam to:" \
+    "  ${D}${CFG[launch_options_value]}${R}" \
+    "1) ask each time (recommended)" \
+    "2) always set them (your other launch options are kept)" \
+    "3) never"
+  a=$(choose 3 1) || return 1
+  case $a in
+    2) CFG[launch_options]=always CFG[launch_options_mode]=merge ;;
+    3) CFG[launch_options]=never ;;
+    *) CFG[launch_options]=ask ;;
+  esac
+
+  q "4/4  Redist folder" \
+    "When a _CommonRedist-style folder is found in the game's folder, use it" \
+    "straight away instead of showing the folder menu?"
+  read -r -p "   Auto-pick the found folder? [y/N] › " a || return 1
+  [[ ${a,,} == y* ]] && CFG[auto_pick_folder]=true || CFG[auto_pick_folder]=false
+
+  echo
+  if cfg_save; then ok "Saved your settings to $CONFIG_FILE"
+  else warn "Couldn't save $CONFIG_FILE; using these answers for this run only."
+  fi
+  printf '%sChange them any time with: redinstaller --config%s\n\n' "$D" "$R"
+}
+
 # ── args ─────────────────────────────────────────────────────────────────────
 APPID= FOLDER= DRYRUN=0 CONFIG_UI=0 NO_CONFIG=0
-for a in "$@"; do [[ $a == --no-config ]] && NO_CONFIG=1; done
+FIRST_RUN=1 BANNER_DONE=0
+for a in "$@"; do
+  case $a in
+    --no-config) NO_CONFIG=1 FIRST_RUN=0 ;;
+    --config|--settings|-h|--help|-V|--version) FIRST_RUN=0 ;;
+  esac
+done
 cfg_defaults
 ((NO_CONFIG)) || cfg_load
+# First run: only in a terminal, and only while there's no config file yet.
+if ((FIRST_RUN)) && [[ ! -e $CONFIG_FILE && -t 0 && -t 1 ]]; then
+  first_run || { echo; warn "Setup skipped; using the defaults this time."; cfg_defaults; }
+  BANNER_DONE=1
+fi
 cfg_apply
 while (($#)); do
   case $1 in
@@ -262,7 +336,7 @@ while (($#)); do
 done
 
 if ((CONFIG_UI)); then banner; settings_ui; exit 0; fi
-((SHOW_BANNER)) && banner
+((SHOW_BANNER && !BANNER_DONE)) && banner
 
 # ── distro-specific install hints ────────────────────────────────────────────
 # Prints arch | debian | ubuntu | fedora | immutable (SteamOS, Bazzite…) | nothing.

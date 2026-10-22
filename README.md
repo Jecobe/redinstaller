@@ -187,7 +187,11 @@ redinstaller
 
 ## Settings
 
-Run `redinstaller --config` to choose what Redinstaller does by default.
+The first time you run `redinstaller`, it asks four quick questions (silent
+installs, which Protontricks to use, Steam launch options, and whether to
+auto-pick the found redist folder) and saves your answers.
+
+Run `redinstaller --config` at any time to change those and everything else.
 Use the arrow keys (or type to search), press Enter to change the highlighted
 setting, and Esc when you're done. Changes are saved straight away.
 
