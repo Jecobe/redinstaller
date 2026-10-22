@@ -1,12 +1,6 @@
 # Redinstaller
 
-```text
- ____          _ _           _        _ _
-|  _ \ ___  __| (_)_ __  ___| |_ __ _| | | ___ _ __
-| |_) / _ \/ _` | | '_ \/ __| __/ _` | | |/ _ \ '__|
-|  _ <  __/ (_| | | | | \__ \ || (_| | | |  __/ |
-|_| \_\___|\__,_|_|_| |_|___/\__\__,_|_|_|\___|_|
-```
+<p align="center"><img src="assets/logo.png" alt="Redinstaller" width="640"></p>
 
 A terminal tool for Linux that installs a game's Windows redistributables
 (the `.exe` / `.msi` files in `_CommonRedist`: VC++ runtimes, DirectX, .NET,
