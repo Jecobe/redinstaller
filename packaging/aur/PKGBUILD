@@ -1,0 +1,20 @@
+# Maintainer: Jecobe <67129253+Jecobe@users.noreply.github.com>
+pkgname=redinstaller
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Install a game's Windows redistributables (_CommonRedist .exe/.msi) into its Steam Proton prefix with Protontricks"
+arch=('any')
+url="https://github.com/Jecobe/redinstaller"
+license=('GPL-3.0-or-later')
+depends=('bash' 'protontricks' 'coreutils' 'findutils' 'gawk' 'grep' 'sed' 'procps-ng' 'util-linux')
+optdepends=('fzf: searchable game and folder menus'
+            'perl: setting Steam launch options'
+            'flatpak: use Flatpak Protontricks instead of the native one')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 redinstaller "$pkgdir/usr/bin/redinstaller"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

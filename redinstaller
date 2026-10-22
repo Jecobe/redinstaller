@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# redinstaller.sh: install a folder of Windows redistributable .exe/.msi files into
-# a Steam Proton prefix with protontricks-launch. Dependency-light version of
-# redinstaller.py.
+# redinstaller: install a game's Windows redistributables (.exe/.msi, e.g. the
+# _CommonRedist folder) into its Steam Proton prefix with Protontricks.
+# https://github.com/Jecobe/redinstaller
 #
 # Needs:  bash 4.4+, protontricks (native or Flatpak), fzf (optional; falls back
 #         to a numbered menu), perl (only for setting launch options).
@@ -14,7 +14,7 @@
 # non-Steam games) and searches it for _CommonRedist-style folders; you can
 # pick one, browse the game folder, or type a custom path.
 #
-# Usage:  ./redinstaller.sh [options] [FOLDER]
+# Usage:  redinstaller [options] [FOLDER]
 #   --appid ID     skip the game picker
 #   --recursive    include installers in sub-folders
 #   --silent       add quiet flags for known installers (VC++, DirectX, .NET, OpenAL)
@@ -23,13 +23,22 @@
 #   --launch-options[=OPTS]   also set the game's Steam launch options (default:
 #                  WINEDLLOVERRIDES="OnlineFix64,SteamOverlay64,winmm,dnet,steam_api64=n,b" %command%)
 #   --replace-launch-options  replace existing launch options instead of merging
+#   --version      print the version                -h, --help  this help
 #
 # Launch options are written to localconfig.vdf / shortcuts.vdf (needs perl),
 # after a .bak backup. Steam must be closed first; the script offers to close it.
 #
 # Ctrl+C while an installer runs skips that installer and asks whether to go on.
+#
+# Copyright (C) 2026 Jecobe
+# SPDX-License-Identifier: GPL-3.0-or-later
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version. It comes with ABSOLUTELY NO WARRANTY; see the LICENSE file.
 
 set -uo pipefail
+VERSION=1.0.0
 shopt -s extglob
 
 FLATPAK_ID=com.github.Matoking.protontricks
@@ -71,7 +80,8 @@ while (($#)); do
     --launch-options) LAUNCH=1 ;;
     --launch-options=*) LAUNCH=1 LAUNCH_VALUE=${1#*=} ;;
     --replace-launch-options) LAUNCH=1 LAUNCH_REPLACE=1 ;;
-    -h|--help) sed -n '2,31s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -V|--version) echo "redinstaller $VERSION"; exit 0 ;;
     -*) die "Unknown option: $1 (see --help)" ;;
     *) FOLDER=$1 ;;
   esac
