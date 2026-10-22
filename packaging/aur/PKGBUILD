@@ -1,6 +1,6 @@
 # Maintainer: Jecobe <67129253+Jecobe@users.noreply.github.com>
 pkgname=redinstaller
-pkgver=1.0.0
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Install a game's Windows redistributables (_CommonRedist .exe/.msi) into its Steam Proton prefix with Protontricks"
 arch=('any')
@@ -11,7 +11,7 @@ optdepends=('fzf: searchable game and folder menus'
             'perl: setting Steam launch options'
             'flatpak: use Flatpak Protontricks instead of the native one')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('3d822213328f1e08f104e979380465dea8a13e757335b327e6a2bdcaa48a1829')
+sha256sums=('940e5fc12a8cb8a1aee95873eaae99aa2d18a0634ace5ac79c6b0cf8d8808d0b')
 
 package() {
   cd "$pkgname-$pkgver"
