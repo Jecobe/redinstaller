@@ -16,8 +16,12 @@ Two versions are included:
 
 | File | What it is | Needs |
 |---|---|---|
-| `redinstaller.py` | Full TUI built with [Textual](https://textual.textualize.io/) | Python 3.9+, `textual`, Protontricks |
+| `redinstaller.py` | Full TUI built with [Textual](https://textual.textualize.io/) | Python 3.10+, Textual 2.1+, Protontricks |
 | `redinstaller.sh` | Lighter bash version using `fzf` | bash 4.4+, Protontricks, optional `fzf` and `perl` |
+
+Works on Arch, Debian, Ubuntu, Fedora and their derivatives, plus SteamOS and
+other immutable distros through Flatpak Protontricks. Both versions detect
+your distro and print the right install command if something is missing.
 
 ## Features
 
@@ -56,16 +60,78 @@ git clone https://github.com/Jecobe/redinstaller.git
 cd redinstaller
 ```
 
-Dependencies (Arch shown; use your distro's package manager):
+Then install the dependencies for your distro. `python3-textual` is only
+needed for `redinstaller.py`; `fzf` and `perl` only for `redinstaller.sh`.
+
+### Arch, Manjaro, EndeavourOS, CachyOS
 
 ```bash
-sudo pacman -S protontricks           # or: pipx install protontricks
-sudo pacman -S python-textual         # or: pip install --user textual   (Python version)
-sudo pacman -S fzf                    # optional, for the bash version's search
+sudo pacman -S protontricks python-textual fzf
 ```
 
-Flatpak Protontricks works too:
-`flatpak install flathub com.github.Matoking.protontricks`.
+### Fedora (and Nobara)
+
+```bash
+sudo dnf install protontricks python3-textual fzf perl-interpreter
+```
+
+### Ubuntu, Linux Mint, Pop!_OS
+
+Protontricks is in the `multiverse` component:
+
+```bash
+sudo add-apt-repository multiverse
+sudo apt install protontricks fzf
+```
+
+- **Ubuntu 25.04 and newer:** `sudo apt install python3-textual`.
+- **Ubuntu 24.04 and older:** the packaged Textual is too old, so use a
+  [virtual environment](#python-virtual-environment) for the Python version.
+
+### Debian
+
+Protontricks isn't packaged in Debian 13 (stable). Install it with `pipx`;
+it also needs `winetricks`, which is in the `contrib` component (enable it in
+your APT sources first):
+
+```bash
+sudo apt install pipx winetricks fzf
+pipx install protontricks
+pipx ensurepath              # puts protontricks on your PATH (log out and back in)
+```
+
+- **Debian 13 and newer:** `sudo apt install python3-textual`.
+- **Debian 12:** use a [virtual environment](#python-virtual-environment).
+
+If Steam came from Debian's or Ubuntu's `steam` package, it lives in
+`~/.steam/debian-installation`. Redinstaller checks there automatically.
+
+### SteamOS (Steam Deck), Bazzite, Fedora Silverblue
+
+Use the Flatpak version of Protontricks:
+
+```bash
+flatpak install flathub com.github.Matoking.protontricks
+```
+
+For the Python version, use a
+[virtual environment](#python-virtual-environment). The bash version works
+without `fzf` (it falls back to numbered menus).
+
+### Python virtual environment
+
+Works on any distro when the packaged Textual is missing or too old:
+
+```bash
+sudo apt install python3-venv      # Debian/Ubuntu only
+python3 -m venv ~/.venvs/redinstaller
+~/.venvs/redinstaller/bin/pip install textual
+~/.venvs/redinstaller/bin/python redinstaller.py
+```
+
+### Any distro
+
+`pipx install protontricks` (needs `winetricks`) or the Flatpak above.
 
 The game must have been launched once with Proton so its prefix exists.
 

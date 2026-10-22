@@ -16,11 +16,22 @@ WHAT IT DOES
          .msi  protontricks -c 'wine msiexec /i <file.msi>' <APPID>
 
 REQUIREMENTS
-    * Python 3.9+
-    * Textual:        pip install --user textual     (or: pipx inject / a venv)
-                      Arch: sudo pacman -S python-textual
-    * Protontricks:   native (`protontricks` + `protontricks-launch` on PATH)
-                      or Flatpak (com.github.Matoking.protontricks)
+    * Python 3.10+ and Textual 2.1+
+          Arch:              sudo pacman -S python-textual
+          Debian 13+:        sudo apt install python3-textual
+          Ubuntu 25.04+:     sudo apt install python3-textual
+          Fedora:            sudo dnf install python3-textual
+          anything else:     python3 -m venv ~/.venvs/redinstaller
+                             ~/.venvs/redinstaller/bin/pip install textual
+                             ~/.venvs/redinstaller/bin/python redinstaller.py
+    * Protontricks, native (`protontricks` + `protontricks-launch` on PATH)
+      or Flatpak (com.github.Matoking.protontricks)
+          Arch:              sudo pacman -S protontricks
+          Debian:            sudo apt install pipx winetricks && pipx install protontricks
+                             (winetricks is in "contrib"; protontricks isn't in Debian 13)
+          Ubuntu:            sudo apt install protontricks   (needs "multiverse")
+          Fedora:            sudo dnf install protontricks
+          SteamOS / Bazzite: flatpak install flathub com.github.Matoking.protontricks
 
 USAGE
     python3 redinstaller.py                     # interactive
@@ -67,6 +78,64 @@ import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
+
+def os_release() -> dict[str, str]:
+    try:
+        text = Path("/etc/os-release").read_text()
+    except OSError:
+        return {}
+    return {k: v.strip().strip('"') for k, sep, v in (line.partition("=") for line in text.splitlines()) if sep}
+
+
+def distro() -> str:
+    """'arch', 'debian', 'ubuntu', 'fedora', 'immutable' (SteamOS, Bazzite, Silverblue…) or ''."""
+    info = os_release()
+    if info.get("ID") == "steamos" or Path("/run/ostree-booted").exists():
+        return "immutable"
+    ids = [info.get("ID", "")] + info.get("ID_LIKE", "").split()
+    for family in ("ubuntu", "debian", "fedora", "arch"):  # ubuntu first: Mint & co list "ubuntu debian"
+        if family in ids:
+            return family
+    return ""
+
+
+VENV_HINT = (
+    "python3 -m venv ~/.venvs/redinstaller && ~/.venvs/redinstaller/bin/pip install textual\n"
+    "      then run: ~/.venvs/redinstaller/bin/python redinstaller.py"
+)
+
+# Install commands per distro family, checked against each distro's repos.
+INSTALL_HINTS: dict[str, dict[str, str]] = {
+    "arch": {
+        "protontricks": "sudo pacman -S protontricks",
+        "textual": "sudo pacman -S python-textual",
+    },
+    "debian": {
+        "protontricks": "sudo apt install pipx winetricks && pipx install protontricks\n"
+                        "      (enable the \"contrib\" component for winetricks; protontricks isn't packaged in Debian 13)",
+        "textual": "sudo apt install python3-textual   (Debian 13+; on Debian 12 use a venv, below)",
+    },
+    "ubuntu": {
+        "protontricks": "sudo add-apt-repository multiverse && sudo apt install protontricks",
+        "textual": "sudo apt install python3-textual   (Ubuntu 25.04+; 24.04 and older ship a version too old, use a venv, below)",
+    },
+    "fedora": {
+        "protontricks": "sudo dnf install protontricks",
+        "textual": "sudo dnf install python3-textual",
+    },
+    "immutable": {
+        "protontricks": "flatpak install flathub com.github.Matoking.protontricks",
+        "textual": "use a venv, below",
+    },
+}
+DISTRO_NAMES = {"arch": "Arch and Arch-based distros", "debian": "Debian", "ubuntu": "Ubuntu and Ubuntu-based distros",
+                "fedora": "Fedora", "immutable": "SteamOS, Bazzite and other immutable distros"}
+
+
+def hint(what: str) -> str:
+    return INSTALL_HINTS.get(distro(), {}).get(what, "")
+
+
 try:
     from rich.console import Console
     from rich.markup import escape
@@ -95,12 +164,13 @@ try:
     )
     from textual.widgets.option_list import Option
 except ImportError:
+    _family = distro()
+    _venv_pkg = "  (first: sudo apt install python3-venv)\n" if _family in ("debian", "ubuntu") else ""
     sys.stderr.write(
-        "This tool needs the 'textual' package.\n\n"
-        "  pip install --user textual          # any distro\n"
-        "  sudo pacman -S python-textual       # Arch\n"
-        "  python3 -m venv ~/.venvs/redinstaller && ~/.venvs/redinstaller/bin/pip install textual\n\n"
-        "Or use the dependency-free bash version (redinstaller.sh).\n"
+        "Redinstaller needs the Python 'textual' package (version 2.1 or newer).\n\n"
+        + (f"On {DISTRO_NAMES[_family]}:\n  {hint('textual')}\n\n" if hint("textual") else "")
+        + f"In a virtual environment (works anywhere):\n{_venv_pkg}  {VENV_HINT}\n\n"
+        "Or use the bash version instead (redinstaller.sh), which doesn't need Python.\n"
     )
     sys.exit(1)
 
@@ -220,6 +290,7 @@ def steam_roots() -> list[Path]:
         home / ".local/share/Steam",
         home / ".steam/steam",
         home / ".steam/root",
+        home / ".steam/debian-installation",  # Debian/Ubuntu "steam" package
         home / ".var/app/com.valvesoftware.Steam/.local/share/Steam",
         home / "snap/steam/common/.local/share/Steam",
     ]
@@ -705,19 +776,23 @@ def fmt_secs(s: float) -> str:
 
 
 def install_instructions() -> str:
-    return (
-        "[b]Protontricks was not found.[/b]\n\n"
-        "Install it with one of:\n"
-        "  • Arch / Manjaro   [cyan]sudo pacman -S protontricks[/]\n"
-        "  • Debian / Ubuntu  [cyan]sudo apt install protontricks[/]\n"
-        "  • Fedora           [cyan]sudo dnf install protontricks[/]\n"
-        "  • openSUSE         [cyan]sudo zypper install protontricks[/]\n"
-        "  • Any distro       [cyan]pipx install protontricks[/]\n"
-        f"  • Flatpak          [cyan]flatpak install flathub {FLATPAK_ID}[/]\n\n"
-        "Protontricks also needs [b]winetricks[/b] (native installs) and a Steam\n"
-        "library containing at least one game launched once with Proton.\n"
-        "Then run this tool again."
-    )
+    family = distro()
+    lines = ["[b]Protontricks was not found.[/b]", ""]
+    if hint("protontricks"):
+        lines += [f"On {DISTRO_NAMES[family]}:", f"  [cyan]{escape(hint('protontricks'))}[/]", "", "Other options:"]
+    else:
+        lines += ["Install it with one of:"]
+    lines += [
+        "  • Arch     [cyan]sudo pacman -S protontricks[/]",
+        "  • Ubuntu   [cyan]sudo apt install protontricks[/]  (multiverse)",
+        "  • Fedora   [cyan]sudo dnf install protontricks[/]",
+        "  • Any      [cyan]pipx install protontricks[/]  (also needs winetricks)",
+        f"  • Flatpak  [cyan]flatpak install flathub {FLATPAK_ID}[/]",
+        "",
+        "You also need a Steam game that has been launched once with Proton.",
+        "Then run this tool again.",
+    ]
+    return "\n".join(lines)
 
 
 # ───────────────────────────── widgets ─────────────────────────────
@@ -1614,7 +1689,7 @@ class InstallScreen(Screen):
 
 
 class RedistApp(App):
-    TITLE = "RedInstaller"
+    TITLE = "Redinstaller"
     CSS = CSS
 
     def __init__(self, backend: Backend | None, args: argparse.Namespace) -> None:

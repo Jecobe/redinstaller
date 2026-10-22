@@ -3,8 +3,12 @@
 # a Steam Proton prefix with protontricks-launch. Dependency-light version of
 # redinstaller.py.
 #
-# Needs:  bash 4+, protontricks (native or Flatpak), fzf (optional; falls back
-#         to a numbered menu). Arch: sudo pacman -S protontricks fzf
+# Needs:  bash 4.4+, protontricks (native or Flatpak), fzf (optional; falls back
+#         to a numbered menu), perl (only for setting launch options).
+#           Arch:    sudo pacman -S protontricks fzf
+#           Debian:  sudo apt install pipx winetricks fzf && pipx install protontricks
+#           Ubuntu:  sudo apt install protontricks fzf   (multiverse)
+#           Fedora:  sudo dnf install protontricks fzf perl-interpreter
 #
 # Finds the game's install folder (Steam appmanifest, or shortcuts.vdf for
 # non-Steam games) and searches it for _CommonRedist-style folders; you can
@@ -67,7 +71,7 @@ while (($#)); do
     --launch-options) LAUNCH=1 ;;
     --launch-options=*) LAUNCH=1 LAUNCH_VALUE=${1#*=} ;;
     --replace-launch-options) LAUNCH=1 LAUNCH_REPLACE=1 ;;
-    -h|--help) sed -n '2,27s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,31s/^# \{0,1\}//p' "$0"; exit 0 ;;
     -*) die "Unknown option: $1 (see --help)" ;;
     *) FOLDER=$1 ;;
   esac
@@ -76,15 +80,52 @@ done
 
 banner
 
+# ── distro-specific install hints ────────────────────────────────────────────
+# Prints arch | debian | ubuntu | fedora | immutable (SteamOS, Bazzite…) | nothing.
+distro() {
+  local ID= ID_LIKE=
+  [[ -r /etc/os-release ]] && eval "$(grep -E '^(ID|ID_LIKE)=' /etc/os-release)"
+  if [[ $ID == steamos || -e /run/ostree-booted ]]; then echo immutable; return; fi
+  local f
+  for f in ubuntu debian fedora arch; do   # ubuntu first: Mint & co say "ubuntu debian"
+    [[ " $ID $ID_LIKE " == *" $f "* ]] && { echo "$f"; return; }
+  done
+}
+DISTRO=$(distro)
+
+# hint PACKAGE → install command for this distro (empty if unknown)
+hint() {
+  case $DISTRO:$1 in
+    arch:protontricks)   echo "sudo pacman -S protontricks" ;;
+    debian:protontricks) echo "sudo apt install pipx winetricks && pipx install protontricks   (winetricks needs \"contrib\")" ;;
+    ubuntu:protontricks) echo "sudo add-apt-repository multiverse && sudo apt install protontricks" ;;
+    fedora:protontricks) echo "sudo dnf install protontricks" ;;
+    immutable:protontricks) echo "flatpak install flathub $FLATPAK_ID" ;;
+    arch:fzf)            echo "sudo pacman -S fzf" ;;
+    debian:fzf|ubuntu:fzf) echo "sudo apt install fzf" ;;
+    fedora:fzf)          echo "sudo dnf install fzf" ;;
+    arch:perl)           echo "sudo pacman -S perl" ;;
+    debian:perl|ubuntu:perl) echo "sudo apt install perl" ;;
+    fedora:perl)         echo "sudo dnf install perl-interpreter" ;;
+  esac
+}
+
 # ── backend ──────────────────────────────────────────────────────────────────
 install_help() {
+  printf '%sProtontricks was not found.%s\n' "$B" "$R" >&2
+  if [[ -n $(hint protontricks) ]]; then
+    printf '\nOn this system (%s):\n  %s%s%s\n\nOther options:\n' "$DISTRO" "$CYN" "$(hint protontricks)" "$R" >&2
+  else
+    printf '\nInstall it with one of:\n' >&2
+  fi
   cat >&2 <<EOF
-${B}Protontricks was not found.${R} Install it with one of:
-  Arch / Manjaro   ${CYN}sudo pacman -S protontricks${R}
-  Debian / Ubuntu  ${CYN}sudo apt install protontricks${R}
-  Fedora           ${CYN}sudo dnf install protontricks${R}
-  Any distro       ${CYN}pipx install protontricks${R}
-  Flatpak          ${CYN}flatpak install flathub $FLATPAK_ID${R}
+  Arch      ${CYN}sudo pacman -S protontricks${R}
+  Ubuntu    ${CYN}sudo apt install protontricks${R}  (multiverse)
+  Fedora    ${CYN}sudo dnf install protontricks${R}
+  Any       ${CYN}pipx install protontricks${R}  (also needs winetricks)
+  Flatpak   ${CYN}flatpak install flathub $FLATPAK_ID${R}
+
+You also need a Steam game that has been launched once with Proton.
 EOF
   exit 1
 }
@@ -106,7 +147,7 @@ info "Using ${B}$KIND${R} Protontricks"
 # ── games: "APPID<TAB>NAME" lines ────────────────────────────────────────────
 steam_roots() {
   local root
-  for root in "${STEAM_DIR:-}" ~/.local/share/Steam ~/.steam/steam ~/.steam/root \
+  for root in "${STEAM_DIR:-}" ~/.local/share/Steam ~/.steam/steam ~/.steam/root ~/.steam/debian-installation \
               ~/.var/app/com.valvesoftware.Steam/.local/share/Steam ~/snap/steam/common/.local/share/Steam; do
     [[ -n $root && -d $root/steamapps ]] && realpath "$root"
   done | sort -u
@@ -156,7 +197,7 @@ elif command -v fzf >/dev/null; then
              --prompt='🔎 Game › ' --header='Type to filter · Enter to select · Esc to quit' \
              --info=inline) || die "No game selected."
 else
-  warn "fzf not found; using a numbered menu (sudo pacman -S fzf for search)."
+  h=$(hint fzf); warn "fzf not found; using a numbered menu.${h:+ For searchable lists: $h}"
   mapfile -t rows <<<"$GAMES"
   labels=(); for r in "${rows[@]}"; do labels+=("${r#*$'\t'}  ${D}|${R}  ${r%%$'\t'*}"); done
   PS3="${B}Game number › ${R}"
@@ -217,7 +258,7 @@ pick_menu() {
   local prompt=$1 lines=$2 r
   if command -v fzf >/dev/null; then
     fzf --delimiter=$'\t' --with-nth=2.. --no-sort --height=40% --reverse --border=rounded \
-        --prompt="$prompt › " --info=hidden <<<"$lines" | cut -f1
+        --prompt="$prompt › " --info=inline <<<"$lines" | cut -f1
   else
     local -a rows=() labels=()
     mapfile -t rows <<<"$lines"
@@ -237,9 +278,8 @@ browse() {
   if command -v fzf >/dev/null; then
     rel=$({ echo .; find "$root" -mindepth 1 -maxdepth 6 \( -name '.*' -prune \) -o -type d -printf '%P\n' 2>/dev/null | sort -f; } |
       fzf --height=70% --reverse --border=rounded --prompt='📂 Folder › ' \
-          --header="Inside: $root   (Enter picks · Esc cancels)" \
-          --preview="cd $(printf %q "$root") && find {} -maxdepth 3 -type f \( -iname '*.exe' -o -iname '*.msi' \) 2>/dev/null | head -50" \
-          --preview-label=' installers ') || return 1
+          --header="Inside: $root   (Enter picks · Esc cancels · right: installers inside)" \
+          --preview="cd $(printf %q "$root") && find {} -maxdepth 3 -type f \( -iname '*.exe' -o -iname '*.msi' \) 2>/dev/null | head -50") || return 1
     printf '%s' "$root/${rel#.}"
   else
     read -e -r -i "$root/" -p "${B}📂 Folder (Tab completes):${R} " rel && printf '%s' "$rel"
@@ -491,7 +531,7 @@ if [[ -z $LAUNCH ]]; then
 fi
 if [[ $LAUNCH == 1 ]]; then
   if ! command -v perl >/dev/null; then
-    warn "perl is needed to edit Steam's config. Set it by hand instead: Steam → ${NAME} → Properties → Launch options:"
+    h=$(hint perl); warn "perl is needed to edit Steam's config${h:+ ($h)}. Set it by hand instead: Steam → ${NAME} → Properties → Launch options:"
     printf '    %s\n' "$LAUNCH_VALUE"
   else
     read -e -r -i "$LAUNCH_VALUE" -p "${B}Launch options:${R} " LAUNCH_VALUE
