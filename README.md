@@ -57,11 +57,21 @@ command in `/usr/local/bin`. On SteamOS, Bazzite and other immutable distros
 it uses Flatpak Protontricks and installs to `~/.local/bin`. Want to read it
 first? [install.sh](install.sh)
 
-Options go after `bash -s --`:
+#### Installer options (optional)
+
+Most people don't need these; the command above works on its own.
+
+To change how the installer behaves, add `-s --` after `bash`, then the
+options you want. For example, to install just for your user (into
+`~/.local/bin`) instead of system-wide:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jecobe/redinstaller/main/install.sh | bash -s -- --user
 ```
+
+`-s --` tells bash "the options after this are for the installer, not for
+bash itself". Without it, bash would try to use `--user` itself and fail.
+You can list several options, e.g. `bash -s -- --user --yes`.
 
 | Option | Effect |
 |---|---|
