@@ -45,6 +45,35 @@ right install command.
 
 ## Install
 
+### Quick install (any distro)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jecobe/redinstaller/main/install.sh | bash
+```
+
+The installer detects your distro, installs Protontricks, `fzf` and `perl`
+with your package manager (it asks first), and puts the `redinstaller`
+command in `/usr/local/bin`. On SteamOS, Bazzite and other immutable distros
+it uses Flatpak Protontricks and installs to `~/.local/bin`. Want to read it
+first? [install.sh](install.sh)
+
+Options go after `bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Jecobe/redinstaller/main/install.sh | bash -s -- --user
+```
+
+| Option | Effect |
+|---|---|
+| `--user` | Install to `~/.local/bin` (no root for the script itself) |
+| `--no-deps` | Only install the script |
+| `--flatpak` | Use Flatpak Protontricks on any distro |
+| `--ref TAG` | Install a specific version, e.g. `--ref v1.0.0` |
+| `-y`, `--yes` | Don't ask before installing packages |
+| `--uninstall` | Remove the `redinstaller` command |
+
+The sections below are for installing by hand.
+
 ### Arch Linux (AUR)
 
 ```bash
