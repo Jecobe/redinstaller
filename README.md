@@ -42,6 +42,8 @@ right install command.
   you choose replace. See [Launch options](#launch-options).
 - **Native or Flatpak Protontricks**, detected automatically.
 - **`--dry-run`** shows every command without running anything.
+- **Settings screen** (`redinstaller --config`) to pick your defaults:
+  silent installs, auto-picking the redist folder, launch options and more.
 
 ## Install
 
@@ -168,16 +170,50 @@ redinstaller
 | Option | Effect |
 |---|---|
 | `FOLDER` | Redist folder to use (skips the folder step) |
+| `--config` | Open the settings screen (see [Settings](#settings)) |
 | `--appid ID` | Preselect a game |
-| `--recursive` | Include installers in sub-folders |
-| `--silent` | Use quiet flags for known installers |
+| `--recursive` / `--no-recursive` | Include installers in sub-folders, or don't |
+| `--silent` / `--no-silent` | Use quiet flags for known installers, or don't |
 | `--flatpak` / `--native` | Force a Protontricks flavour |
 | `--verbose` | Keep Wine debug output (`WINEDEBUG` isn't silenced) |
 | `--dry-run` | Print commands, run nothing |
+| `-y`, `--yes` | Don't ask "Install N file(s)?" |
 | `--launch-options[=OPTS]` | Also set the game's Steam launch options |
 | `--replace-launch-options` | Replace existing launch options instead of merging |
+| `--no-launch-options` | Don't set launch options this time |
+| `--no-config` | Ignore your settings for this run |
 | `--version` | Print the version |
 | `-h`, `--help` | Show help |
+
+## Settings
+
+Run `redinstaller --config` to choose what Redinstaller does by default.
+Use the arrow keys (or type to search), press Enter to change the highlighted
+setting, and Esc when you're done. Changes are saved straight away.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Silent installs | off | Quiet flags for VC++, DirectX, .NET, OpenAL and `.msi` installers |
+| Search sub-folders | off | Include sub-folders of a folder you type in |
+| Auto-pick found folder | off | Use the detected `_CommonRedist` folder without showing the menu |
+| Levels to search up | 4 | Parent folders to search above a non-Steam game (0-10) |
+| Confirm before install | on | Ask "Install N file(s)?" first |
+| Set launch options | ask | Write Steam launch options: ask, always or never |
+| Launch options | `WINEDLLOVERRIDES=…` | The launch options to write |
+| Existing launch options | ask | merge, replace, or ask each time |
+| Close Steam | ask | Offer to close Steam for launch options, or never (skip them) |
+| Protontricks | auto | auto, native or flatpak |
+| Wine debug output | off | Show Wine's debug messages |
+| Steam folder | auto | Only if Steam isn't found automatically |
+| Show logo | on | Show the logo at start-up |
+
+Settings are stored in `~/.config/redinstaller/config`, a plain text file you
+can also edit by hand (each setting has a comment explaining it). Options on
+the command line override your settings for that run, e.g. `--no-silent`.
+
+For a fully hands-off run, turn on **Silent installs** and **Auto-pick found
+folder**, and turn off **Confirm before install**; then
+`redinstaller --appid <ID>` installs everything without a single question.
 
 ## Launch options
 

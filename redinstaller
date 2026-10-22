@@ -15,15 +15,23 @@
 # pick one, browse the game folder, or type a custom path.
 #
 # Usage:  redinstaller [options] [FOLDER]
+#   --config       open the settings screen (your defaults for every run)
 #   --appid ID     skip the game picker
-#   --recursive    include installers in sub-folders
-#   --silent       add quiet flags for known installers (VC++, DirectX, .NET, OpenAL)
+#   --recursive    include installers in sub-folders     (--no-recursive)
+#   --silent       add quiet flags for known installers   (--no-silent)
+#                  (VC++, DirectX, .NET, OpenAL, .msi)
 #   --flatpak      force Flatpak Protontricks      --native   force native
 #   --verbose      keep Wine debug output          --dry-run  print commands only
+#   -y, --yes      don't ask "Install N file(s)?"
 #   --launch-options[=OPTS]   also set the game's Steam launch options (default:
 #                  WINEDLLOVERRIDES="OnlineFix64,SteamOverlay64,winmm,dnet,steam_api64=n,b" %command%)
 #   --replace-launch-options  replace existing launch options instead of merging
+#   --no-launch-options       don't set launch options this time
+#   --no-config    ignore the settings file for this run
 #   --version      print the version                -h, --help  this help
+#
+# Settings live in ~/.config/redinstaller/config (or $REDINSTALLER_CONFIG).
+# Options given on the command line override them for that run.
 #
 # Launch options are written to localconfig.vdf / shortcuts.vdf (needs perl),
 # after a .bak backup. Steam must be closed first; the script offers to close it.
@@ -38,7 +46,7 @@
 # version. It comes with ABSOLUTELY NO WARRANTY; see the LICENSE file.
 
 set -uo pipefail
-VERSION=1.0.0
+VERSION=1.1.0
 shopt -s extglob
 
 FLATPAK_ID=com.github.Matoking.protontricks
@@ -60,26 +68,191 @@ banner() {
   printf '%s%s\n' "$MAG$B" "┣┳┛┣╸  ┃┃┃┃┗┫┗━┓ ┃ ┣━┫┃  ┃  ┣╸ ┣┳┛"
   printf '%s%s%s\n' "$MAG$B" "╹┗╸┗━╸╺┻┛╹╹ ╹┗━┛ ╹ ╹ ╹┗━╸┗━╸┗━╸╹┗╸" "$R"
   printf '%sWindows redistributables → Steam Proton prefixes, via Protontricks%s\n' "$CYN" "$R"
-  printf '%s💡 Pick a game, paste the _CommonRedist folder, confirm. Ctrl+C skips an installer.%s\n\n' "$D" "$R"
+  printf '%s💡 Pick a game, pick the _CommonRedist folder, confirm. Ctrl+C skips an installer. Settings: redinstaller --config%s\n\n' "$D" "$R"
+}
+
+# ── settings ─────────────────────────────────────────────────────────────────
+# Defaults come from the config file (edit it with `redinstaller --config`);
+# command-line options override them for one run.
+DEFAULT_LAUNCH='WINEDLLOVERRIDES="OnlineFix64,SteamOverlay64,winmm,dnet,steam_api64=n,b" %command%'
+CONFIG_FILE=${REDINSTALLER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/redinstaller/config}
+# key|type|default|label|description   (type: bool, int, text, or a/b/c choices)
+SETTINGS=(
+  "silent|bool|false|Silent installs|Add quiet flags for known installers (VC++, DirectX, .NET, OpenAL, any .msi), so you don't click through each installer."
+  "recursive|bool|false|Search sub-folders|When you type or pass a folder, also install from its sub-folders. (Detected and browsed folders always include sub-folders.)"
+  "auto_pick_folder|bool|false|Auto-pick found folder|If a _CommonRedist-style folder is found, use the best match straight away instead of showing the folder menu."
+  "search_levels_up|int|4|Levels to search up|How many parent folders above a non-Steam game's folder to search for _CommonRedist (0-10). Never goes above your home folder."
+  "confirm_install|bool|true|Confirm before install|Ask \"Install N file(s)?\" after showing the list. Turn off to start installing right away."
+  "launch_options|ask/always/never|ask|Set launch options|Whether to also write the game's Steam launch options: ask each time, always, or never."
+  "launch_options_value|text|$DEFAULT_LAUNCH|Launch options|The launch options to write. Empty resets to the default."
+  "launch_options_mode|ask/merge/replace|ask|Existing launch options|merge keeps the game's other options and adds these in front; replace overwrites them; ask decides each time."
+  "close_steam|ask/never|ask|Close Steam|Steam must be closed to save launch options. ask offers to close it; never skips the launch options while Steam runs."
+  "protontricks|auto/native/flatpak|auto|Protontricks|Which Protontricks to use. auto prefers the native one and falls back to Flatpak."
+  "verbose|bool|false|Wine debug output|Show Wine's debug messages while installers run (useful when something fails)."
+  "steam_dir|text||Steam folder|Only needed if Steam isn't found automatically. Empty = auto-detect."
+  "show_banner|bool|true|Show logo|Show the Redinstaller logo when it starts."
+)
+declare -A CFG
+
+cfg_field() {  # cfg_field KEY N → field N (1-5) of the setting, fails for unknown keys
+  local s f=()
+  for s in "${SETTINGS[@]}"; do
+    [[ $s == "$1|"* ]] || continue
+    IFS='|' read -r -a f <<<"$s"; printf '%s' "${f[$2-1]:-}"; return 0
+  done
+  return 1
+}
+cfg_defaults() { local s; for s in "${SETTINGS[@]}"; do CFG[${s%%|*}]=$(cfg_field "${s%%|*}" 3); done; }
+cfg_norm() {  # cfg_norm KEY VALUE → normalised value, fails if invalid
+  local t v=$2; t=$(cfg_field "$1" 2) || return 1
+  case $t in
+    bool) case ${v,,} in true|yes|on|1) echo true ;; false|no|off|0) echo false ;; *) return 1 ;; esac ;;
+    int)  [[ $v =~ ^[0-9]+$ ]] && ((10#$v <= 10)) && echo $((10#$v)) ;;
+    text) [[ $v != *$'\n'* ]] && printf '%s\n' "$v" ;;
+    *)    [[ /$t/ == */"${v,,}"/* ]] && echo "${v,,}" ;;
+  esac
+}
+cfg_load() {
+  [[ -r $CONFIG_FILE ]] || return 0
+  local line k v n=0
+  while IFS= read -r line || [[ -n $line ]]; do
+    n=$((n + 1))
+    [[ $line =~ ^[[:space:]]*(#|$) ]] && continue
+    k=${line%%=*} v=${line#*=}
+    k=${k//[[:space:]]/}
+    v=${v#"${v%%[![:space:]]*}"}; v=${v%"${v##*[![:space:]]}"}
+    if [[ $line != *=* ]] || ! cfg_field "$k" 1 >/dev/null; then
+      warn "Config line $n ignored (unknown setting): $line"
+    elif ! v=$(cfg_norm "$k" "$v"); then
+      warn "Config: invalid value for $k on line $n; using ${CFG[$k]:-empty}"
+    else
+      CFG[$k]=$v
+    fi
+  done <"$CONFIG_FILE"
+}
+cfg_save() {
+  local tmp=$CONFIG_FILE.tmp.$$ s k t d label desc
+  mkdir -p -- "${CONFIG_FILE%/*}" || return 1
+  {
+    echo "# Redinstaller settings. Change them with: redinstaller --config"
+    echo "# (or edit this file). Command-line options override them for one run."
+    for s in "${SETTINGS[@]}"; do
+      IFS='|' read -r k t d label desc <<<"$s"
+      case $t in bool) t="true or false" ;; int) t="a number 0-10" ;; text) t="text" ;; *) t="${t//\// | }" ;; esac
+      printf '\n# %s: %s\n# %s; default: %s\n%s = %s\n' "$label" "$desc" "$t" "${d:-empty}" "$k" "${CFG[$k]}"
+    done
+  } >"$tmp" && mv -f -- "$tmp" "$CONFIG_FILE"
+}
+cfg_apply() {  # settings → the variables the rest of the script uses
+  is() { [[ ${CFG[$1]} == "$2" ]]; }
+  is silent true && SILENT=1 || SILENT=0
+  is recursive true && RECURSIVE=1 || RECURSIVE=0
+  is auto_pick_folder true && AUTO_PICK=1 || AUTO_PICK=0
+  MAX_UP=${CFG[search_levels_up]}
+  is confirm_install true && CONFIRM=1 || CONFIRM=0
+  case ${CFG[launch_options]} in always) LAUNCH=1 ;; never) LAUNCH=0 ;; *) LAUNCH= ;; esac
+  LAUNCH_VALUE=${CFG[launch_options_value]:-$DEFAULT_LAUNCH}
+  LAUNCH_MODE=${CFG[launch_options_mode]}
+  CLOSE_STEAM=${CFG[close_steam]}
+  case ${CFG[protontricks]} in native|flatpak) FORCE=${CFG[protontricks]} ;; *) FORCE= ;; esac
+  is verbose true && VERBOSE=1 || VERBOSE=0
+  is show_banner true && SHOW_BANNER=1 || SHOW_BANNER=0
+  if [[ -z ${STEAM_DIR:-} && -n ${CFG[steam_dir]} ]]; then
+    STEAM_DIR=${CFG[steam_dir]}; [[ $STEAM_DIR == "~"* ]] && STEAM_DIR=$HOME${STEAM_DIR:1}
+  fi
+}
+
+# settings_ui: the --config screen. Enter changes the highlighted setting
+# (toggle / next choice / type a value); every change is saved right away.
+settings_ui() {
+  local s k t d label desc v rows pick pos=1 n msg= newer=0 ver
+  ver=$(fzf --version 2>/dev/null) && [[ $ver =~ ^0\.([0-9]+) ]] && ((BASH_REMATCH[1] >= 36)) && newer=1
+  [[ $ver =~ ^[1-9] ]] && newer=1
+  while :; do
+    rows= n=0
+    for s in "${SETTINGS[@]}"; do
+      IFS='|' read -r k t d label desc <<<"$s"; n=$((n + 1))
+      v=${CFG[$k]}
+      case $t in bool) [[ $v == true ]] && v="${GRN}on${R}" || v="${D}off${R}" ;; *) v="${CYN}${v:-${D}(auto)}${R}" ;; esac
+      [[ ${CFG[$k]} != "$d" ]] && v+=" ${YEL}•${R}"
+      rows+=$(printf '%s\t%-24s %s\t%s' "$k" "$label" "$v" "$desc")$'\n'
+    done
+    rows+="__edit"$'\t'"📝 Open the config file in an editor"$'\t'"$CONFIG_FILE"$'\n'
+    rows+="__reset"$'\t'"↺  Reset everything to defaults"$'\t'"Puts every setting back to its default and saves."$'\n'
+    rows+="__done"$'\t'"✔  Done"$'\t'"Settings are saved as you change them."
+    if command -v fzf >/dev/null; then
+      local extra=(); ((newer)) && extra=(--bind "load:pos($pos)")
+      pick=$(fzf --ansi --delimiter=$'\t' --with-nth=2 --no-sort --reverse --border=rounded \
+                 --height=80% --prompt='⚙  Settings › ' --info=inline \
+                 --header="Enter changes the setting · Esc quits · ${YEL}•${R} = changed from default${msg:+ · $msg}" \
+                 --preview='printf "%s\n" {3}' --preview-window=down:3:wrap "${extra[@]}" <<<"$rows") || break
+    else
+      local -a lines=(); mapfile -t lines <<<"$rows"
+      echo; printf '%sSettings%s %s(%s)%s\n' "$B" "$R" "$D" "$CONFIG_FILE" "$R"
+      for ((n = 0; n < ${#lines[@]}; n++)); do
+        IFS=$'\t' read -r k label desc <<<"${lines[n]}"; printf '  %2d) %s\n' $((n + 1)) "$label"
+      done
+      [[ -n $msg ]] && printf '  %s\n' "$msg"
+      read -r -p "${B}Number to change (Enter = done) › ${R}" n || break
+      [[ -z $n ]] && break
+      [[ $n =~ ^[0-9]+$ ]] && ((n >= 1 && n <= ${#lines[@]})) || { msg="Pick 1-${#lines[@]}."; continue; }
+      pick=${lines[n-1]}
+    fi
+    k=${pick%%$'\t'*} msg=
+    pos=1; n=0; for s in "${SETTINGS[@]}" __edit __reset __done; do n=$((n + 1)); [[ ${s%%|*} == "$k" ]] && pos=$n; done
+    case $k in
+      __done) break ;;
+      __reset) cfg_defaults ;;
+      __edit)
+        [[ -e $CONFIG_FILE ]] || cfg_save
+        "${VISUAL:-${EDITOR:-nano}}" "$CONFIG_FILE" || warn "Couldn't start an editor; set \$EDITOR."
+        cfg_defaults; cfg_load; continue ;;
+      *)
+        t=$(cfg_field "$k" 2) label=$(cfg_field "$k" 4) v=${CFG[$k]}
+        case $t in
+          bool) [[ $v == true ]] && v=false || v=true ;;
+          int|text)
+            read -e -r -i "$v" -p "${B}${label}:${R} " v || continue
+            [[ -t 1 ]] && printf '\e[1A\e[2K'   # tidy away the prompt line
+            if [[ $k == launch_options_value && -z $v ]]; then v=$DEFAULT_LAUNCH; fi
+            v=$(cfg_norm "$k" "$v") || { msg="${RED}Invalid value for ${label}${R}"; continue; } ;;
+          *)  # cycle to the next choice
+            local -a ch=(); IFS=/ read -r -a ch <<<"$t"
+            for ((n = 0; n < ${#ch[@]}; n++)); do [[ ${ch[n]} == "$v" ]] && break; done
+            v=${ch[(n + 1) % ${#ch[@]}]} ;;
+        esac
+        CFG[$k]=$v ;;
+    esac
+    if cfg_save; then msg="${GRN}saved${R}"; else msg="${RED}couldn't save $CONFIG_FILE${R}"; fi
+  done
+  [[ -e $CONFIG_FILE ]] && ok "Settings saved in $CONFIG_FILE" || info "No changes saved."
 }
 
 # ── args ─────────────────────────────────────────────────────────────────────
-APPID= FOLDER= RECURSIVE=0 SILENT=0 FORCE= VERBOSE=0 DRYRUN=0
-DEFAULT_LAUNCH='WINEDLLOVERRIDES="OnlineFix64,SteamOverlay64,winmm,dnet,steam_api64=n,b" %command%'
-LAUNCH= LAUNCH_VALUE=$DEFAULT_LAUNCH LAUNCH_REPLACE=0
+APPID= FOLDER= DRYRUN=0 CONFIG_UI=0 NO_CONFIG=0
+for a in "$@"; do [[ $a == --no-config ]] && NO_CONFIG=1; done
+cfg_defaults
+((NO_CONFIG)) || cfg_load
+cfg_apply
 while (($#)); do
   case $1 in
     --appid) APPID=${2:?--appid needs a value}; shift ;;
     --appid=*) APPID=${1#*=} ;;
     --recursive|-r) RECURSIVE=1 ;;
+    --no-recursive) RECURSIVE=0 ;;
     --silent|-s) SILENT=1 ;;
+    --no-silent) SILENT=0 ;;
     --flatpak) FORCE=flatpak ;;
     --native) FORCE=native ;;
     --verbose|-v) VERBOSE=1 ;;
     --dry-run|-n) DRYRUN=1 ;;
+    --yes|-y) CONFIRM=0 ;;
     --launch-options) LAUNCH=1 ;;
     --launch-options=*) LAUNCH=1 LAUNCH_VALUE=${1#*=} ;;
-    --replace-launch-options) LAUNCH=1 LAUNCH_REPLACE=1 ;;
+    --replace-launch-options) LAUNCH=1 LAUNCH_MODE=replace ;;
+    --no-launch-options) LAUNCH=0 ;;
+    --config|--settings) CONFIG_UI=1 ;;
+    --no-config) ;;
     -h|--help) sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "${BASH_SOURCE[0]}"; exit 0 ;;
     -V|--version) echo "redinstaller $VERSION"; exit 0 ;;
     -*) die "Unknown option: $1 (see --help)" ;;
@@ -88,7 +261,8 @@ while (($#)); do
   shift
 done
 
-banner
+if ((CONFIG_UI)); then banner; settings_ui; exit 0; fi
+((SHOW_BANNER)) && banner
 
 # ── distro-specific install hints ────────────────────────────────────────────
 # Prints arch | debian | ubuntu | fedora | immutable (SteamOS, Bazzite…) | nothing.
@@ -306,10 +480,9 @@ if [[ -z $FOLDER ]]; then
     ROOT=$GAMEDIR UP=0
     mapfile -t FOUND < <(find_redist_dirs "$ROOT")
     # Non-Steam shortcuts often start in a sub-folder (bin/, Binaries/…), so
-    # climb up to MAX_UP levels, stopping at the first level with a hit. Never
+    # climb up to MAX_UP levels (search_levels_up), stopping at the first level with a hit. Never
     # search $HOME itself or above it (other games' installers live there), nor /.
     if ((${#FOUND[@]} == 0)) && [[ $GAMEDIR_SRC == non-Steam* ]]; then
-      MAX_UP=4
       while ((${#FOUND[@]} == 0 && UP < MAX_UP)); do
         parent=$(dirname -- "$ROOT")
         [[ $parent == "$ROOT" || $parent == / ]] && break
@@ -339,7 +512,11 @@ if [[ -z $FOLDER ]]; then
   if [[ -n $GAMEDIR ]]; then where="the game folder"; else where="your home folder"; fi
   menu+="browse"$'\t'"📂 Browse $where…"$'\n'
   menu+="custom"$'\t'"✏️  Enter a custom path…"
-  choice=$(pick_menu "Redist folder" "$menu") || true
+  if ((AUTO_PICK && ${#FOUND[@]})); then
+    choice=found:0; info "Using the best match (auto_pick_folder is on)"
+  else
+    choice=$(pick_menu "Redist folder" "$menu") || true
+  fi
   case $choice in
     found:*) FOLDER=${FOUND[${choice#found:}]#*$'\t'}; RECURSIVE=1 ;;
     browse)  FOLDER=$(browse "${GAMEDIR:-$HOME}") && RECURSIVE=1 ;;
@@ -534,21 +711,22 @@ shutdown_steam() {
   return 1
 }
 
-LAUNCH_PLAN=()   # "KIND<TAB>FILE<TAB>NEW"
+LAUNCH_PLAN=() LAUNCH_ASKED=0   # "KIND<TAB>FILE<TAB>NEW"
 if [[ -z $LAUNCH ]]; then
   read -r -p "${B}Also set Steam launch options for ${NAME}? [y/N] ${R}" a
-  [[ ${a,,} == y* ]] && LAUNCH=1
+  [[ ${a,,} == y* ]] && LAUNCH=1 LAUNCH_ASKED=1
 fi
 if [[ $LAUNCH == 1 ]]; then
   if ! command -v perl >/dev/null; then
     h=$(hint perl); warn "perl is needed to edit Steam's config${h:+ ($h)}. Set it by hand instead: Steam → ${NAME} → Properties → Launch options:"
     printf '    %s\n' "$LAUNCH_VALUE"
   else
-    read -e -r -i "$LAUNCH_VALUE" -p "${B}Launch options:${R} " LAUNCH_VALUE
-    if ((!LAUNCH_REPLACE)); then
+    ((LAUNCH_ASKED)) && read -e -r -i "$LAUNCH_VALUE" -p "${B}Launch options:${R} " LAUNCH_VALUE
+    if [[ $LAUNCH_MODE == ask ]]; then
       read -r -p "Merge with any existing options (keeps them) or replace? [M/r] " a
-      [[ ${a,,} == r* ]] && LAUNCH_REPLACE=1
+      LAUNCH_MODE=merge; [[ ${a,,} == r* ]] && LAUNCH_MODE=replace
     fi
+    LAUNCH_REPLACE=0; [[ $LAUNCH_MODE == replace ]] && LAUNCH_REPLACE=1
     mapfile -t TARGETS < <(launch_targets)
     ((${#TARGETS[@]})) || warn "This game isn't in your Steam config; launch options skipped."
     for t in "${TARGETS[@]}"; do
@@ -566,8 +744,10 @@ if [[ $LAUNCH == 1 ]]; then
   line
 fi
 
-read -r -p "${B}Install ${#EXES[@]} file(s) into ${NAME}? [Y/n] ${R}" a
-[[ ${a,,} == n* ]] && die "Cancelled."
+if ((CONFIRM)); then
+  read -r -p "${B}Install ${#EXES[@]} file(s) into ${NAME}? [Y/n] ${R}" a
+  [[ ${a,,} == n* ]] && die "Cancelled."
+fi
 
 LAUNCH_LOG=()
 if ((${#LAUNCH_PLAN[@]})); then
@@ -576,7 +756,8 @@ if ((${#LAUNCH_PLAN[@]})); then
     apply=0; LAUNCH_LOG+=("✔ Launch options (dry run, not written)")
   elif steam_running; then
     warn "Steam is running. It rewrites its config when it exits, so the change would be lost."
-    read -r -p "Close Steam now (also closes any game running through Steam)? [y = close / s = skip] " a
+    a=s
+    [[ $CLOSE_STEAM == ask ]] && read -r -p "Close Steam now (also closes any game running through Steam)? [y = close / s = skip] " a
     if [[ ${a,,} == y* ]]; then
       info "Waiting for Steam to exit…"
       if shutdown_steam; then ok "Steam closed; start it again when you're done."

@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 *.bak
 *.redinstaller-tmp
+packaging/aur/pkg/
+packaging/aur/src/
+packaging/aur/*.tar.*
