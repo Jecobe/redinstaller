@@ -11,7 +11,7 @@ optdepends=('fzf: searchable game and folder menus'
             'perl: setting Steam launch options'
             'flatpak: use Flatpak Protontricks instead of the native one')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('3d822213328f1e08f104e979380465dea8a13e757335b327e6a2bdcaa48a1829')
 
 package() {
   cd "$pkgname-$pkgver"
