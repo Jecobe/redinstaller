@@ -8,9 +8,7 @@ OpenAL, …) into its Steam Proton prefix with
 [Protontricks](https://github.com/Matoking/protontricks). It works with Steam
 games and non-Steam shortcuts.
 
-It comes as a terminal command (`redinstaller`, a single bash script) and a
-desktop app (`redinstaller-gui`, GTK 4) that does the same steps in a window.
-Both share the same settings. It works on Arch, Debian, Ubuntu, Fedora and their
+It's a single bash script. It works on Arch, Debian, Ubuntu, Fedora and their
 derivatives, plus SteamOS and other immutable distros through Flatpak
 Protontricks. If something is missing, it detects your distro and prints the
 right install command.
@@ -18,8 +16,8 @@ right install command.
 ## Features
 
 - **Game picker:** lists every non-Steam shortcut (games you added to Steam
-  yourself) that has a Proton prefix; regular Steam games aren't shown. Listed as `Name  |  AppID`,
-  searchable with [fzf](https://github.com/junegunn/fzf) (or a numbered menu
+  yourself) that has a Proton prefix; regular Steam games aren't shown. Listed
+  as `Name  |  AppID`, searchable with [fzf](https://github.com/junegunn/fzf) (or a numbered menu
   without it).
 - **Finds the redist folder for you.** It locates the game's install folder
   (from the Steam app manifest, or `shortcuts.vdf` for non-Steam games) and
@@ -48,35 +46,6 @@ right install command.
 - **Settings screen** (`redinstaller --config`) to pick your defaults:
   silent installs, auto-picking the redist folder, launch options and more.
 
-## Desktop app
-
-`redinstaller-gui` (or **Redinstaller** in your app menu) does everything the
-terminal version does, in a window:
-
-1. **Games:** a searchable list of every non-Steam game with a Proton prefix.
-2. **Folder:** the detected `_CommonRedist`-style folders with their installer
-   counts, a folder picker for browsing, or a box to type any path.
-3. **Review:** the files that will be installed and their silent flags, with
-   switches for silent mode and dry run, plus the Steam launch options
-   (merge or replace, with a preview of the old and new value).
-4. **Install:** a progress bar, the installer output, a **Skip this
-   installer** button (like Ctrl+C), and a summary at the end.
-
-Settings (Ctrl+,), the first-run questions, closing Steam for launch options
-and uninstalling all work as they do in the terminal. It reads and writes the
-same `~/.config/redinstaller/config`, and takes the same command-line options
-(`--appid`, `--dry-run`, `--silent`, `FOLDER`, …; see
-`redinstaller-gui --help`).
-
-It needs Python 3 with PyGObject, GTK 4.10+ and libadwaita 1.5+ (the quick
-installer sets these up). It doesn't need `fzf` or `perl`.
-
-| Distro | Packages |
-|---|---|
-| Arch | `sudo pacman -S python-gobject gtk4 libadwaita` |
-| Fedora | `sudo dnf install python3-gobject gtk4 libadwaita` |
-| Debian 13, Ubuntu 24.04+ | `sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1` |
-
 ## Install
 
 ### Quick install (any distro)
@@ -85,10 +54,9 @@ installer sets these up). It doesn't need `fzf` or `perl`.
 curl -fsSL https://raw.githubusercontent.com/Jecobe/redinstaller/main/install.sh | bash
 ```
 
-The installer detects your distro, installs Protontricks, `fzf`, `perl` and
-the desktop app's GTK libraries with your package manager (it asks first),
-puts the `redinstaller` and `redinstaller-gui` commands in `/usr/local/bin`,
-and adds Redinstaller to your app menu. On SteamOS, Bazzite and other immutable distros
+The installer detects your distro, installs Protontricks, `fzf` and `perl`
+with your package manager (it asks first), and puts the `redinstaller`
+command in `/usr/local/bin`. On SteamOS, Bazzite and other immutable distros
 it uses Flatpak Protontricks and installs to `~/.local/bin`. Want to read it
 first? [install.sh](install.sh)
 
@@ -111,12 +79,11 @@ You can list several options, e.g. `bash -s -- --user --yes`.
 | Option | Effect |
 |---|---|
 | `--user` | Install to `~/.local/bin` (no root for the script itself) |
-| `--no-deps` | Only install the scripts |
-| `--no-gui` | Skip the desktop app and its dependencies |
+| `--no-deps` | Only install the script |
 | `--flatpak` | Use Flatpak Protontricks on any distro |
 | `--ref TAG` | Install a specific version, e.g. `--ref v1.0.0` |
 | `-y`, `--yes` | Don't ask before installing packages |
-| `--uninstall` | Remove the `redinstaller` and `redinstaller-gui` commands |
+| `--uninstall` | Remove the `redinstaller` command |
 
 The sections below are for installing by hand.
 
@@ -127,10 +94,6 @@ Install the dependencies (below), then put the script on your `PATH`:
 ```bash
 git clone https://github.com/Jecobe/redinstaller.git
 sudo install -Dm755 redinstaller/redinstaller /usr/local/bin/redinstaller
-# optional: the desktop app and its menu entry
-sudo install -Dm755 redinstaller/redinstaller-gui /usr/local/bin/redinstaller-gui
-sudo install -Dm644 redinstaller/data/io.github.Jecobe.Redinstaller.desktop \
-  /usr/local/share/applications/io.github.Jecobe.Redinstaller.desktop
 ```
 
 Or, without root: `install -Dm755 redinstaller/redinstaller ~/.local/bin/redinstaller`
@@ -286,12 +249,9 @@ asking. To undo a change, restore the `.bak` file while Steam is closed.
 redinstaller --uninstall
 ```
 
-It shows what it will remove and asks first. The desktop app can do the same
-from its menu (**Uninstall Redinstaller…**). Both remove the terminal command,
-the desktop app and its menu entry. A copy installed by the quick
-installer or by hand is deleted; a copy from a package is
-removed with your package manager. It
-then asks whether to delete your settings too. Protontricks, fzf, perl and
+It shows what it will remove and asks first. A copy installed by the quick
+installer or by hand is deleted; a copy from a package is removed with your
+package manager. It then asks whether to delete your settings too. Protontricks, fzf, perl and
 any Steam config backups (`*.redinstaller-*.bak`) are left in place.
 
 ## Troubleshooting

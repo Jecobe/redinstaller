@@ -28,7 +28,7 @@
 #   --replace-launch-options  replace existing launch options instead of merging
 #   --no-launch-options       don't set launch options this time
 #   --no-config    ignore the settings file for this run
-#   --uninstall    remove redinstaller and redinstaller-gui (asks first; -y skips asking)
+#   --uninstall    remove the redinstaller command (asks first; -y skips asking)
 #   --version      print the version                -h, --help  this help
 #
 # Settings live in ~/.config/redinstaller/config (or $REDINSTALLER_CONFIG); the
@@ -299,10 +299,7 @@ uninstall() {
   local -a files=() pkgcmd=()
   ((EUID)) && { command -v sudo >/dev/null && sudo=(sudo) || { command -v doas >/dev/null && sudo=(doas); }; }
   self=$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null)
-  local desktop=io.github.Jecobe.Redinstaller.desktop
-  for f in "$self" "${self%/*}/redinstaller-gui" "$HOME/.local/bin/redinstaller" /usr/local/bin/redinstaller /usr/bin/redinstaller \
-           "$HOME/.local/bin/redinstaller-gui" /usr/local/bin/redinstaller-gui /usr/bin/redinstaller-gui \
-           "$HOME/.local/share/applications/$desktop" /usr/local/share/applications/$desktop /usr/share/applications/$desktop; do
+  for f in "$self" "$HOME/.local/bin/redinstaller" /usr/local/bin/redinstaller /usr/bin/redinstaller; do
     [[ -n $f && -f $f ]] || continue
     f=$(realpath -- "$f")
     [[ " ${files[*]} " == *" $f "* ]] || files+=("$f")
