@@ -11,6 +11,7 @@
 #   --user        install to ~/.local/bin instead of /usr/local/bin (no root
 #                 needed for the script itself; dependencies may still need sudo)
 #   --no-deps     only install the script, skip dependencies
+#   --no-gui      skip the graphical app (redinstaller-gui) and its dependencies
 #   --flatpak     use Flatpak Protontricks even on a regular distro
 #   --ref REF     install from this branch or tag (default: main)
 #   -y, --yes     don't ask before installing packages
@@ -33,7 +34,8 @@ set -euo pipefail
 REPO=Jecobe/redinstaller
 REF=main
 FLATPAK_ID=com.github.Matoking.protontricks
-USER_INSTALL=0 DEPS=1 FORCE_FLATPAK=0 YES=0 UNINSTALL=0
+DESKTOP=io.github.Jecobe.Redinstaller.desktop
+USER_INSTALL=0 DEPS=1 FORCE_FLATPAK=0 YES=0 UNINSTALL=0 GUI=1
 
 if [[ -t 1 ]]; then
   B=$'\e[1m' R=$'\e[0m' RED=$'\e[31m' GRN=$'\e[32m' YEL=$'\e[33m' CYN=$'\e[36m'
@@ -50,6 +52,7 @@ while (($#)); do
   case $1 in
     --user) USER_INSTALL=1 ;;
     --no-deps) DEPS=0 ;;
+    --no-gui) GUI=0 ;;
     --flatpak) FORCE_FLATPAK=1 ;;
     --ref) [[ $# -ge 2 ]] || die "--ref needs a value"; REF=$2; shift ;;
     --ref=*) REF=${1#*=} ;;
@@ -96,9 +99,11 @@ root() {  # run as root, with terminal input
 # ── uninstall ────────────────────────────────────────────────────────────────
 if ((UNINSTALL)); then
   removed=0
-  for f in "$HOME/.local/bin/redinstaller" /usr/local/bin/redinstaller; do
+  for f in "$HOME/.local/bin/redinstaller" "$HOME/.local/bin/redinstaller-gui" \
+           "$HOME/.local/share/applications/$DESKTOP" /usr/local/bin/redinstaller \
+           /usr/local/bin/redinstaller-gui "/usr/local/share/applications/$DESKTOP"; do
     [[ -e $f ]] || continue
-    if [[ -w ${f%/*} ]]; then rm -f "$f"; else root rm -f "$f"; fi
+    if [[ -w ${f%/*} ]]; then rm -f "$f"; else root rm -f "$f"; fi || { warn "couldn't remove $f"; continue; }
     ok "removed $f"; removed=1
   done
   [[ -e /usr/bin/redinstaller ]] &&
@@ -128,6 +133,12 @@ fi
 say "Installing Redinstaller on ${PRETTY_NAME:-$ID} ($DISTRO)"
 
 # ── dependencies ─────────────────────────────────────────────────────────────
+# The GUI needs Python 3 with PyGObject, GTK 4 and libadwaita 1.5+.
+has_gui_deps() {
+  have python3 && python3 -c 'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
+from gi.repository import Adw; assert (Adw.get_major_version(), Adw.get_minor_version()) >= (1, 5)' >/dev/null 2>&1
+}
+
 has_protontricks() {
   have protontricks-launch && return 0
   have flatpak && flatpak info "$FLATPAK_ID" >/dev/null 2>&1
@@ -147,32 +158,39 @@ flatpak_protontricks() {
 }
 
 install_deps() {
-  local y=()
+  local y=() gui=()
+  if ((GUI)) && ! has_gui_deps; then
+    case $DISTRO in
+      arch) gui=(python-gobject gtk4 libadwaita) ;;
+      fedora) gui=(python3-gobject gtk4 libadwaita) ;;
+      ubuntu|debian) gui=(python3-gi gir1.2-gtk-4.0 gir1.2-adw-1) ;;
+    esac
+  fi
   case $DISTRO in
     arch)
       ((YES)) && y=(--noconfirm)
-      ask "Update the system and install protontricks, fzf and perl with pacman (-Syu)?" || return 0
-      root pacman -Syu --needed "${y[@]}" protontricks fzf perl ;;
+      ask "Update the system and install protontricks, fzf and perl${gui:+ (plus ${gui[*]} for the GUI)} with pacman (-Syu)?" || return 0
+      root pacman -Syu --needed "${y[@]}" protontricks fzf perl "${gui[@]}" ;;
     fedora)
       ((YES)) && y=(-y)
-      ask "Install protontricks, fzf and perl with dnf?" || return 0
-      root dnf install "${y[@]}" protontricks fzf perl-interpreter ;;
+      ask "Install protontricks, fzf and perl${gui:+ (plus ${gui[*]} for the GUI)} with dnf?" || return 0
+      root dnf install "${y[@]}" protontricks fzf perl-interpreter "${gui[@]}" ;;
     ubuntu)
       ((YES)) && y=(-y)
-      ask "Install protontricks, fzf and perl with apt (enables the multiverse component if needed)?" || return 0
+      ask "Install protontricks, fzf and perl${gui:+ (plus ${gui[*]} for the GUI)} with apt (enables the multiverse component if needed)?" || return 0
       root apt-get update
       if [[ -z $(apt-cache policy protontricks 2>/dev/null | awk '/Candidate:/ {print $2}' | grep -v none) ]]; then
         have add-apt-repository || root apt-get install -y software-properties-common
         root add-apt-repository -y multiverse
         root apt-get update
       fi
-      root apt-get install "${y[@]}" protontricks fzf perl ;;
+      root apt-get install "${y[@]}" protontricks fzf perl "${gui[@]}" ;;
     debian)
       # Protontricks isn't packaged in Debian stable: use pipx. winetricks is in contrib.
       ((YES)) && y=(-y)
-      ask "Install pipx, winetricks, fzf and perl with apt, then protontricks with pipx?" || return 0
+      ask "Install pipx, winetricks, fzf and perl${gui:+ (plus ${gui[*]} for the GUI)} with apt, then protontricks with pipx?" || return 0
       root apt-get update
-      local pkgs=(pipx fzf perl)
+      local pkgs=(pipx fzf perl "${gui[@]}")
       if [[ -n $(apt-cache policy winetricks 2>/dev/null | awk '/Candidate:/ {print $2}' | grep -v none) ]]; then
         pkgs+=(winetricks)
       else
@@ -198,14 +216,17 @@ install_deps() {
 }
 
 if ((DEPS)); then
-  if has_protontricks && have fzf && have perl; then
-    ok "protontricks, fzf and perl are already installed"
+  if has_protontricks && have fzf && have perl && { ((!GUI)) || has_gui_deps; }; then
+    ok "protontricks, fzf and perl$( ((GUI)) && echo ' (and the GUI libraries)') are already installed"
   else
     install_deps
   fi
   # Flatpak users don't need fzf/perl from the host package manager (optional).
   have fzf || warn "fzf not installed: you'll get numbered menus instead of search (optional)"
   have perl || warn "perl not installed: Redinstaller can't set Steam launch options (optional)"
+  if ((GUI)) && ! has_gui_deps; then
+    warn "Python 3 with PyGObject, GTK 4 and libadwaita 1.5+ not found: redinstaller-gui won't start (the terminal version still works)"
+  fi
   if has_protontricks; then ok "Protontricks found"
   else warn "Protontricks still isn't installed; Redinstaller needs it to run"
   fi
@@ -216,33 +237,45 @@ if ((USER_INSTALL)); then DEST=$HOME/.local/bin
 else DEST=/usr/local/bin
 fi
 
-TMP=$(mktemp)
-trap 'rm -f "$TMP"' EXIT
+TMP=$(mktemp) TMP_GUI=$(mktemp) TMP_DESKTOP=$(mktemp)
+trap 'rm -f "$TMP" "$TMP_GUI" "$TMP_DESKTOP"' EXIT
 here=
 [[ -f ${BASH_SOURCE[0]:-} ]] && here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-URL=https://raw.githubusercontent.com/$REPO/$REF/redinstaller
-if [[ -n $here && -f $here/redinstaller && -f $here/install.sh ]]; then
-  say "Using redinstaller from $here"
-  cp "$here/redinstaller" "$TMP"
-else
-  say "Downloading redinstaller ($REF)"
-  if have curl; then curl -fsSL "$URL" -o "$TMP" || die "download failed: $URL"
-  elif have wget; then wget -qO "$TMP" "$URL" || die "download failed: $URL"
-  elif have python3; then
-    python3 -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "$URL" "$TMP" ||
-      die "download failed: $URL"
-  else die "need curl, wget or python3 to download $URL"
+[[ -n $here && -f $here/redinstaller && -f $here/install.sh ]] || here=
+fetch() {  # fetch REPO_PATH DEST → copy from the checkout, or download
+  if [[ -n $here ]]; then cp "$here/$1" "$2" 2>/dev/null; return; fi
+  local url=https://raw.githubusercontent.com/$REPO/$REF/$1
+  if have curl; then curl -fsSL "$url" -o "$2"
+  elif have wget; then wget -qO "$2" "$url"
+  elif have python3; then python3 -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "$url" "$2"
+  else die "need curl, wget or python3 to download $url"
   fi
-fi
+}
+put() {  # put MODE SRC DEST
+  if [[ -w ${3%/*} ]] || { [[ ! -e ${3%/*} ]] && ((USER_INSTALL)); }; then install -Dm"$1" "$2" "$3"
+  else root install -Dm"$1" "$2" "$3"; fi
+}
+if [[ -n $here ]]; then say "Using redinstaller from $here"; else say "Downloading redinstaller ($REF)"; fi
+fetch redinstaller "$TMP" || die "download failed: redinstaller ($REF)"
 head -n1 "$TMP" | grep -q '^#!.*bash' || die "the download doesn't look like the redinstaller script"
 version=$(bash "$TMP" --version 2>/dev/null) || die "the downloaded script doesn't run (bash $(bash -c 'echo $BASH_VERSION'))"
 
-if [[ -w $DEST ]] || { [[ ! -e $DEST ]] && ((USER_INSTALL)); }; then
-  install -Dm755 "$TMP" "$DEST/redinstaller"
-else
-  root install -Dm755 "$TMP" "$DEST/redinstaller"
-fi
+put 755 "$TMP" "$DEST/redinstaller"
 ok "installed $version to $DEST/redinstaller"
+
+if ((GUI)); then
+  if fetch redinstaller-gui "$TMP_GUI" && head -n1 "$TMP_GUI" | grep -q '^#!.*python3' &&
+     fetch data/$DESKTOP "$TMP_DESKTOP"; then
+    if ((USER_INSTALL)); then APPS=$HOME/.local/share/applications; else APPS=/usr/local/share/applications; fi
+    put 755 "$TMP_GUI" "$DEST/redinstaller-gui"
+    # Desktop sessions don't always have ~/.local/bin on PATH: use the full path.
+    sed -i "s|^Exec=redinstaller-gui|Exec=$DEST/redinstaller-gui|" "$TMP_DESKTOP"
+    put 644 "$TMP_DESKTOP" "$APPS/$DESKTOP"
+    ok "installed the GUI to $DEST/redinstaller-gui (\"Redinstaller\" in your app menu)"
+  else
+    warn "couldn't get the GUI ($REF may predate it); only the terminal version was installed"
+  fi
+fi
 
 if [[ -e /usr/bin/redinstaller && $DEST != /usr/bin ]]; then
   warn "/usr/bin/redinstaller (from a package) also exists; whichever comes first on PATH wins"
@@ -256,7 +289,7 @@ if [[ $DISTRO == debian ]]; then
   echo "   If 'protontricks' isn't found yet, log out and back in (pipx added ~/.local/bin to PATH)."
 fi
 
-printf '\n%sDone.%s Run %sredinstaller%s to get started (the game needs to have been launched once with Proton).\n' \
+printf '\n%sDone.%s Run %sredinstaller%s (or open Redinstaller from your app menu) to get started (the game needs to have been launched once with Proton).\n' \
   "$GRN$B" "$R" "$B" "$R"
 }
 

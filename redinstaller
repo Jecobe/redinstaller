@@ -28,7 +28,7 @@
 #   --replace-launch-options  replace existing launch options instead of merging
 #   --no-launch-options       don't set launch options this time
 #   --no-config    ignore the settings file for this run
-#   --uninstall    remove the redinstaller command (asks first; -y skips asking)
+#   --uninstall    remove redinstaller and redinstaller-gui (asks first; -y skips asking)
 #   --version      print the version                -h, --help  this help
 #
 # Settings live in ~/.config/redinstaller/config (or $REDINSTALLER_CONFIG); the
@@ -299,7 +299,10 @@ uninstall() {
   local -a files=() pkgcmd=()
   ((EUID)) && { command -v sudo >/dev/null && sudo=(sudo) || { command -v doas >/dev/null && sudo=(doas); }; }
   self=$(realpath -- "${BASH_SOURCE[0]}" 2>/dev/null)
-  for f in "$self" "$HOME/.local/bin/redinstaller" /usr/local/bin/redinstaller /usr/bin/redinstaller; do
+  local desktop=io.github.Jecobe.Redinstaller.desktop
+  for f in "$self" "${self%/*}/redinstaller-gui" "$HOME/.local/bin/redinstaller" /usr/local/bin/redinstaller /usr/bin/redinstaller \
+           "$HOME/.local/bin/redinstaller-gui" /usr/local/bin/redinstaller-gui /usr/bin/redinstaller-gui \
+           "$HOME/.local/share/applications/$desktop" /usr/local/share/applications/$desktop /usr/share/applications/$desktop; do
     [[ -n $f && -f $f ]] || continue
     f=$(realpath -- "$f")
     [[ " ${files[*]} " == *" $f "* ]] || files+=("$f")
@@ -493,13 +496,15 @@ list_games() {
   local out
   out=$("${PT_LIST[@]}" -l 2>/dev/null </dev/null | sed -n 's/^\(.*\) (\([0-9]\{1,\}\))[[:space:]]*$/\2\t\1/p')
   [[ -n $out ]] || out=$(scan_steam)
+  # Only non-Steam shortcuts (their AppIDs are 2147483648 and up).
+  out=$(awk -F'\t' '$2 ~ /^Non-Steam shortcut/ || $1 >= 2147483648' <<<"$out")
   [[ -n $out ]] && sort -t $'\t' -k2,2f -u <<<"$out"
 }
 
-info "Looking for games with a Proton prefix…"
+info "Looking for non-Steam games with a Proton prefix…"
 GAMES=$(list_games) || true
-[[ -n $GAMES ]] || die "No games with a Proton prefix found. Launch the game once with Proton enabled, then retry."
-ok "$(wc -l <<<"$GAMES") games found"
+[[ -n $GAMES ]] || die "No non-Steam games with a Proton prefix found. Add the game to Steam, launch it once with Proton enabled, then retry."
+ok "$(wc -l <<<"$GAMES") non-Steam games found"
 
 if [[ -n $APPID ]]; then
   PICK=$(awk -F'\t' -v id="$APPID" '$1 == id' <<<"$GAMES" | head -n1)

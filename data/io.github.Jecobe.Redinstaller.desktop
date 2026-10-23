@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Redinstaller
+GenericName=Redistributable Installer
+Comment=Install a game's Windows redistributables into its Steam Proton prefix
+Exec=redinstaller-gui %f
+Icon=system-software-install
+Terminal=false
+Categories=Game;
+Keywords=proton;steam;protontricks;vcredist;directx;redist;wine;
+StartupNotify=true
